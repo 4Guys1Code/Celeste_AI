@@ -1,0 +1,123 @@
+import csv  # look into using pandas
+import numpy as np
+import math
+import torch
+import torchvision
+import numpy as np
+import torch.nn as nn
+import torch.nn.functional as f
+import torchvision.models as models
+from torch.autograd import Variable
+import torchvision.transforms.functional as TF
+import torchvision.transforms as transforms
+from torch.utils.data.sampler import SubsetRandomSampler
+from torch.utils.data.dataloader import DataLoader
+from torchvision.datasets import MNIST
+
+# algorithm definitions
+input_arr_size = 4 * 7
+output_arr_size = 7
+
+# game definitions
+frame = 1
+expReward = math.log(frame, 2)  # currently Linear, plan to use log depending on testing
+rewardtotal = 0
+rc_death = 0
+rc_levelfin = 0
+countposrewards = 0
+
+class AI_input:
+    def data_in(self):
+        metadata = open('C:\\game_data\\JoshFromTheOtherGroup.csv', 'r')
+        readfile = csv.reader(metadata)
+        pos_fix = 1 / 1000
+
+        supp_arr = []
+        metadata = np.array([[0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0],
+                             [0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0]], dtype='float32')
+        j = 0
+        if j % 4 != 0 or j == 0:
+            for row in readfile:
+                supp_arr.append(row[0])
+                supp_arr.append(row[1])
+                supp_arr.append(row[2])
+                supp_arr.append(row[3])
+                supp_arr.append(row[4])
+                supp_arr.append(row[5])
+                supp_arr.append(row[6])
+                j += 1
+
+        x = 0
+        y = 0
+        z = 0
+        ready = 0
+
+        while ready != 1:
+            if x % 7 != 0 or x == 0:
+                metadata[y][x] = supp_arr[z]
+                x += 1
+                z += 1
+            else:
+                if z == 28:
+                    ready = 1
+                else:
+                    y += 1
+                    x = 0
+
+        metadata[3][5] = metadata[3][5]*pos_fix
+        metadata[3][6] = metadata[3][6]*pos_fix
+        return metadata
+
+    def reward(self, rewards, death_flag, level_fin_flag, count_pos_rewards, death, level_fin, xpositional, ypositional):
+        # death reward
+        if death == 1 and death_flag == 0:
+            death_flag = 1
+            rewards = rewards-10
+
+        # level finished reward
+        if level_fin == 1 and death_flag == 0 and level_fin_flag == 0:
+            level_fin_flag = 1
+            rewards += 20 - expReward  # level_completed
+
+        # positional rewards
+        if (xpositional >= 0.086 and ypositional >= 0.007) and count_pos_rewards == 0:
+            count_pos_rewards = 1
+            rewards += 20 - expReward  # checkpoint achieved
+
+        if (xpositional >= 0.086 and ypositional >= 0.007) and count_pos_rewards == 0:
+            count_pos_rewards = 1
+            rewards += 20 - expReward  # checkpoint achieved
+
+        return rewards
+
+    def flag_finder(self, metadata_arr):
+        # acquire reward flags
+        death = metadata_arr[0][3]
+        level_fin = metadata_arr[0][4]
+        x_positional = metadata_arr[3][5]
+        y_positional = metadata_arr[3][6]
+        return death, level_fin, x_positional, y_positional
+
+
+data = AI_input
+
+# receive input
+arr = data.data_in(0)
+death, finish, x, y = data.flag_finder(0, arr)
+
+
+# assume rewards
+rewarded_amount = data.reward(0, rewardtotal, rc_death, rc_levelfin, countposrewards, death, finish, x, y)
+rewarded_amount += data.reward(0, rewardtotal, rc_death, rc_levelfin, countposrewards, death, finish, x, y)
+print(rewarded_amount)
+
+
+class Model(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.linear = nn.Linear(input_arr_size, output_arr_size)
+
+    def forward(self, xb):
+        xb = xb.reshape(-1, 28)
+        out = self.linear(xb)
+        return out
