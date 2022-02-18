@@ -1,0 +1,188 @@
+import torch
+import torchvision
+import numpy as np
+import torch.nn as nn
+import torch.nn.functional as f
+import torchvision.models as models
+from torch.autograd import Variable
+from PIL import Image
+import torchvision.transforms.functional as TF
+import torchvision.transforms as transforms
+from torch.utils.data.sampler import SubsetRandomSampler
+from torch.utils.data.dataloader import DataLoader
+from torchvision.datasets import MNIST
+
+# import screenshot
+screenshot = Image.open("black.jpg")
+
+# convert screenshot to img Vector
+imgvec = TF.to_tensor(screenshot)
+
+# define size of input images
+img_size = 160*90
+# number of outputs
+num_outputs = 7
+
+# split the indices into training and validation sets
+def split_indices(n, val_percent):
+    # Determine size of Validation Set
+    n_val = int(val_percent*n)
+    # create random permutations from 0-n
+    idxs = np.random.permutation(n)
+    # returns which indices are in training set and which are in validation set
+    return idxs[n_val:], idxs[:n_val]
+
+
+def accuracy(outputs, labels):
+    _, preds = torch.max(outputs, dim = 1)
+    return torch.sum(preds==labels).item() / len(preds)
+
+
+# Load the MNIST dataset
+dataset = MNIST(root='data/',
+                train=True,
+                transform=transforms.ToTensor())
+
+# number of total pictures
+number_of_samples = 60000
+# percent of samples to be used in validation set
+validation_percent_of_samples = 0.1
+# size of batch for DataLoader
+batch_size = 1000
+
+# define size of input images
+img_size = 28*28
+# number of outputs
+num_outputs = 10
+
+# load values into train_indices and val_indices
+train_indices, val_indices = split_indices(number_of_samples, validation_percent_of_samples)
+
+# sample elements randomly from a given list of indices while generating data !
+train_sampler = SubsetRandomSampler(train_indices)
+# loads data into model for training purposes !
+train_loader = DataLoader(dataset,
+                          batch_size,
+                          sampler=train_sampler)
+
+# sample elements randomly from the given indices
+val_sampler = SubsetRandomSampler(val_indices)
+# loads data into model
+val_loader = DataLoader(dataset,
+                        batch_size,
+                        sampler=val_sampler)
+
+
+# reshapes our images into a vector of size 784 "flattening" them out
+class Model(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.linear = nn.Linear(img_size, num_outputs)
+
+    def forward(self, xb):
+        xb = xb.reshape(-1, 784)
+        out = self.linear(xb)
+        return out
+
+
+model = Model()
+# creates output from 1 of 10 numbers based on all images in a 100x10 matrix
+for images, labels in train_loader:
+    outputs = model(images)
+    break
+
+
+# apply softmax for each output !
+probs = f.softmax(outputs, dim=1)
+# chooses max probability and it's index as well
+max_probs, preds = torch.max(probs, dim=1)
+
+# creates cross entropy function to use for improving the model as compared to trying to use accuracy
+loss_fn = f.cross_entropy
+# using outputs and labels we can directly see how great our loss is, no accuracy required
+loss = loss_fn(outputs, labels)
+
+# defines learning rate of the algorithm
+learning_rate = 0.01
+# optimizes weights and biases during gradient descent
+optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
+
+
+# calculates loss for batch of data, updates gradient descent, computes metric using predictions
+def loss_batch(model, loss_func, xb, yb, opt = None, metric = None):
+    # calculate loss
+    preds = model(xb)
+    loss = loss_func(preds, yb)
+
+    if opt is not None:
+        # compute backwards
+        loss.backward()
+        # update parameters
+        opt.step()
+        # reset gradients
+        opt.zero_grad()
+
+    metric_result = None
+    if metric is not None:
+        # compute the metric
+        metric_result = metric(preds, yb)
+
+    return loss.item(), len(xb), metric_result
+
+
+def evaluate(model, loss_fn, valid_dl, metric = None):
+    with torch.no_grad():
+        # pass each batch through the model
+        results = [loss_batch(model, loss_fn, xb, yb, metric=metric)
+                   for xb, yb in valid_dl]
+        # separate losses, counts, and metrics
+        losses, nums, metrics = zip(*results)
+        # total size of datasheet
+        total = np.sum(nums)
+        # avg. loss across batches
+        avg_loss = np.sum(np.multiply(losses, nums))/total
+        avg_metric = None
+        if metric is not None:
+            # avg. metric across batches
+            avg_metric = np.sum(np.multiply(metrics,nums)) / total
+    return avg_loss, total, avg_metric
+
+
+val_loss, total, val_acc = evaluate(model, loss_fn, val_loader, metric=accuracy)
+
+
+def fit(epochs, model, loss_fn, opt, train_dl, valid_dl, metric=None):
+    for epoch in range(epochs):
+        # training
+        for xb, yb in train_dl:
+            loss, _, _ = loss_batch(model, loss_fn, xb, yb, opt)
+
+        result = evaluate(model, loss_fn, valid_dl, metric)
+        val_loss, total, val_metric = result
+
+        if metric is None:
+            print('Epoch [{}/{}], Loss: {:.4f}'
+                  .format(epoch+1, epochs, val_loss))
+        else:
+            print('Epoch [{}/{}], Loss: {:.4f}, {}: {:4f}'
+                  .format(epoch+1, epochs, val_loss, metric.__name__, val_metric))
+
+
+fit(100, model, f.cross_entropy, optimizer, train_loader, val_loader, accuracy)
+
+# OUTPUTS
+# prints length of training indices and length of validation indices
+print(len(train_indices), len(val_indices))
+# prints the last 20 validation indices
+print('Sample Validation Indices: ', val_indices[:20])
+# prints model output shape
+print('outputs.shape : ', outputs.shape)
+print('Sample outputs :\n', outputs[:2].data)
+# prints sample probabilities
+print('Sample possibilities: ', probs[:2].data)
+# add up sums of one probability for proof of concept
+print('Sum of [1] prob: ', torch.sum(probs[4]).item())
+#print('Loss: {:.4f}, Accuracy: {:.4f}' .format(val_loss, val_acc))
+
+
+print("Goodbye, Cruel World!")
